@@ -48,11 +48,23 @@ options:
               first letter of any of those words (e.g., "1w").
     patterns:
         required: false
-        default: '*'
+        default: null
         description:
             - One or more (shell type) file glob patterns, which restrict the list of files to be returned to
               those whose basenames match at least one of the patterns specified.  Multiple patterns can be
-              specified using a list.
+              specified using a list.  You may only specify one of patterns or regex_patterns.  Mixing the
+              two is an error.
+        aliases: [ "pattern" ]
+    regex_patterns:
+        required: false
+        default: null
+        description:
+            - One or more regex patterns, which restrict the list of files to
+              be returned to those whose basenames match at least one of the
+              patterns specified.  Multiple patterns can be specified using
+              a list.  You may only specify one of patterns or regex_patterns.
+              Mixing the two is an error.
+        aliases: [ "regex_pattern" ]
     contains:
         required: false
         default: null
@@ -60,7 +72,7 @@ options:
             - One or more re patterns which should be matched against the file content 
     paths:
         required: true
-        aliases: [ "name" ]
+        aliases: [ "name", "path" ]
         description:
             - List of paths to the file or directory to search. All paths must be fully qualified.
     file_type:
@@ -123,6 +135,9 @@ EXAMPLES = '''
 
 # find /var/log files equal or greater than 10 megabytes ending with .log or .log.gz
 - find: paths="/var/tmp" patterns="*.log","*.log.gz" size="10m"
+
+# find /var/log files equal or greater than 10 megabytes ending with .old or .log.gz via regex
+- find: paths="/var/tmp" regex_patterns=".*\.(?:old|log\.gz)$" size="10m"
 '''
 
 RETURN = '''
@@ -152,15 +167,28 @@ examined:
     sample: 34
 '''
 
-def pfilter(f, patterns=None):
+def glob_filter(f, patterns=None):
     '''filter using glob patterns'''
     if patterns is None:
         return True
+
     for p in patterns:
         if fnmatch.fnmatch(f, p):
              return True
+
     return False
 
+def re_filter(f, patterns=None):
+    '''filter using regex patterns'''
+    if patterns is None:
+        return True
+
+    for p in patterns:
+        r = re.compile(p)
+        if r.match(f):
+            return True
+
+    return False
 
 def agefilter(st, now, age, timestamp):
     '''filter files older than age'''
@@ -236,8 +264,9 @@ def statinfo(st):
 def main():
     module = AnsibleModule(
         argument_spec = dict(
-            paths         = dict(required=True, aliases=['name'], type='list'),
-            patterns      = dict(default=['*'], type='list'),
+            paths         = dict(required=True, aliases=['name', 'path'], type='list'),
+            patterns      = dict(default=None, aliases=['pattern'], type='list'),
+            regex_patterns= dict(default=None, aliases=['regex_pattern'], type='list'),
             contains      = dict(default=None, type='str'),
             file_type     = dict(default="file", choices=['file', 'directory'], type='str'),
             age           = dict(default=None, type='str'),
@@ -248,6 +277,7 @@ def main():
             follow        = dict(default="False", type='bool'),
             get_checksum  = dict(default="False", type='bool'),
         ),
+        mutually_exclusive = [('patterns', 'regex_patterns')],
     )
 
     params = module.params
@@ -282,7 +312,7 @@ def main():
     for npath in params['paths']:
         if os.path.isdir(npath):
 
-            ''' ignore followlinks for python version < 2.6 '''
+            # ignore followlinks for python version < 2.6
             for root,dirs,files in (sys.version_info < (2,6,0) and os.walk(npath)) or \
                                     os.walk( npath, followlinks=params['follow']):
                 looked = looked + len(files) + len(dirs)
@@ -295,15 +325,18 @@ def main():
                     st = os.stat(fsname)
                     r = {'path': fsname}
                     if stat.S_ISDIR(st.st_mode) and params['file_type'] == 'directory':
-                        if pfilter(fsobj, params['patterns']) and agefilter(st, now, age, params['age_stamp']):
+                        if agefilter(st, now, age, params['age_stamp']) and \
+                           glob_filter(fsobj, params['patterns']) and \
+                           re_filter(fsobj, params['regex_patterns']):
 
                             r.update(statinfo(st))
                             filelist.append(r)
 
                     elif stat.S_ISREG(st.st_mode) and params['file_type'] == 'file':
-                        if pfilter(fsobj, params['patterns']) and \
-                           agefilter(st, now, age, params['age_stamp']) and \
+                        if agefilter(st, now, age, params['age_stamp']) and \
                            sizefilter(st, size) and \
+                           glob_filter(fsobj, params['patterns']) and \
+                           re_filter(fsobj, params['regex_patterns']) and \
                            contentfilter(fsname, params['contains']):
 
                             r.update(statinfo(st))
@@ -321,5 +354,6 @@ def main():
 
 # import module snippets
 from ansible.module_utils.basic import *
-main()
+if __name__ == '__main__':
+    main()
 

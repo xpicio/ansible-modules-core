@@ -54,7 +54,12 @@ If ($force -or -not (Test-Path $dest)) {
     $client = New-Object System.Net.WebClient
 
     if($username -and $password){
-        $client.Credentials = New-Object System.Net.NetworkCredential($username, $password)
+        $credentialCache = New-Object System.Net.CredentialCache
+        $credential = New-Object System.Net.NetworkCredential($username, $password)
+
+        $credentialCache.Add($url, "Basic", $credential)
+        
+        $client.Credentials = $credentialCache
     }
 
     Try {
@@ -70,14 +75,19 @@ Else {
         $webRequest = [System.Net.HttpWebRequest]::Create($url)
 
         if($username -and $password){
-            $webRequest.Credentials = New-Object System.Net.NetworkCredential($username, $password)
+            $credentialCache = New-Object System.Net.CredentialCache
+            $credential = New-Object System.Net.NetworkCredential($username, $password)
+
+            $credentialCache.Add($url, "Basic", $credential)
+        
+            $webRequest.Credentials = $credentialCache
         }
 
         $webRequest.IfModifiedSince = ([System.IO.FileInfo]$dest).LastWriteTime
         $webRequest.Method = "GET"
         [System.Net.HttpWebResponse]$webResponse = $webRequest.GetResponse()
         
-        $stream = New-Object System.IO.StreamReader($response.GetResponseStream())
+        $stream = New-Object System.IO.StreamReader($webResponse.GetResponseStream())
         
         $stream.ReadToEnd() | Set-Content -Path $dest -Force -ErrorAction Stop
         

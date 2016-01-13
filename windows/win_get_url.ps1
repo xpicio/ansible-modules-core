@@ -44,26 +44,22 @@ $skip_certificate_validation = Get-Attr $params "skip_certificate_validation" $f
 $username = Get-Attr $params "username"
 $password = Get-Attr $params "password"
 
-if($skip_certificate_validation){
+if ($skip_certificate_validation) {
   [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
 }
 
 $force = Get-Attr -obj $params -name "force" "yes" | ConvertTo-Bool
 
 If ($force -or -not (Test-Path $dest)) {
-    $client = New-Object System.Net.WebClient
+    $webClient = New-Object System.Net.WebClient
 
-    if($username -and $password){
-        $credentialCache = New-Object System.Net.CredentialCache
-        $credential = New-Object System.Net.NetworkCredential($username, $password)
-
-        $credentialCache.Add($url, "Basic", $credential)
-        
-        $client.Credentials = $credentialCache
+    if ($username -and $password) {
+        $webClient.Credentials = New-Object System.Net.NetworkCredential($username, $password)
     }
 
     Try {
-        $client.DownloadFile($url, $dest)
+        $webClient.DownloadFile($url, $dest)
+
         $result.changed = $true
     }
     Catch {
@@ -74,17 +70,13 @@ Else {
     Try {
         $webRequest = [System.Net.HttpWebRequest]::Create($url)
 
-        if($username -and $password){
-            $credentialCache = New-Object System.Net.CredentialCache
-            $credential = New-Object System.Net.NetworkCredential($username, $password)
-
-            $credentialCache.Add($url, "Basic", $credential)
-        
-            $webRequest.Credentials = $credentialCache
+        if ($username -and $password) {
+            $webRequest.Credentials = New-Object System.Net.NetworkCredential($username, $password)
         }
 
         $webRequest.IfModifiedSince = ([System.IO.FileInfo]$dest).LastWriteTime
         $webRequest.Method = "GET"
+
         [System.Net.HttpWebResponse]$webResponse = $webRequest.GetResponse()
         
         $stream = New-Object System.IO.StreamReader($webResponse.GetResponseStream())
